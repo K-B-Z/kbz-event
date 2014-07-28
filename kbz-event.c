@@ -420,7 +420,7 @@ static int post_is_normal(post_t *p, void *_) {
 	return !(p->type == POST || p->type == PUSH);
 }
 
-int kbz_event_get(int chan_id, int timeout, void **out, int *out_len) {
+int kbz_event_get(int chan_id, void **out, int *out_len, int timeout) {
 	return wait_post(chan_id, timeout, out, out_len, NULL, post_is_normal, NULL);
 }
 
