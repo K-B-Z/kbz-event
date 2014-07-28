@@ -16,7 +16,7 @@ void log_ban(const char *file, const char *func) {
 	ban_nr++;
 }
 
-static int log_level = LOG_INFO;
+static int log_level = LOG_WARN;
 
 void log_set_level(int level) {
 	log_level = level;

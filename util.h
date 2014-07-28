@@ -35,6 +35,8 @@ float now();
 #define POSTS_NR 1024
 #define CHANS_NR 5
 
+#define SHMKEY_MAX (POSTS_NR*CHANS_NR*128)
+
 enum {
 	POST,
 	PUSH,

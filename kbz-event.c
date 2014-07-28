@@ -34,7 +34,8 @@
 
 #include "util.h"
 
-static const key_t ctrl_shm_key = 0xffee;
+static const key_t ctrl_shm_key_base = 0xffee;
+static const char *ctrl_shm_name = "kbzev";
 
 static void ctrl_init(ctrl_t *c) {
 	pthread_mutexattr_t ma;
@@ -48,14 +49,14 @@ static void ctrl_init(ctrl_t *c) {
 ctrl_t *ctrl_get() {
 	int size = sizeof(ctrl_t);
 
-	int fd = shm_open("shm.ctrl", O_RDWR, 0777);
+	int fd = shm_open(ctrl_shm_name, O_RDWR, 0777);
 	if (fd < 0) {
-		info("creating shm.ctrl");
+		info("creating ctrl.shm");
 
 		char path[256];
-		sprintf(path, "shm.ctrl.%d", getpid());
+		sprintf(path, "%s.%d", ctrl_shm_name, getpid());
 		fd = shm_open(path, O_CREAT|O_RDWR, 0777);
-		info("creating shm.ctrl: shm_open %s: %d", path, fd);
+		info("creating ctrl.shm: shm_open %s: %d", path, fd);
 		if (fd < 0) {
 			return NULL;
 		}
@@ -79,14 +80,14 @@ ctrl_t *ctrl_get() {
 		char path_old[256];
 		char path_new[256];
 		sprintf(path_old, "/dev/shm/%s", path);
-		sprintf(path_new, "/dev/shm/shm.ctrl");
+		sprintf(path_new, "/dev/shm/%s", ctrl_shm_name);
 
 		r = link(path_old, path_new);
 		info("create shm.ctrl: link(%s, %s): %d", path_old, path_new, r);
 
 		unlink(path_old);
 
-		fd = shm_open("shm.ctrl", O_RDWR, 0777);
+		fd = shm_open(ctrl_shm_name, O_RDWR, 0777);
 		if (fd < 0) {
 			warn("reopen shm.ctrl failed");
 			return NULL;
@@ -135,7 +136,7 @@ static void ctrl_dump(ctrl_t *c) {
 
 int ishm_new(int len) {
 	for (;;) {
-		int shm = shmget(ctrl_shm_key + (rand()&0xfffff), len, 0777|IPC_CREAT|IPC_EXCL);
+		int shm = shmget(ctrl_shm_key_base + (rand()%SHMKEY_MAX), len, 0777|IPC_CREAT|IPC_EXCL);
 		if (shm > 0)
 			return shm;
 	}
@@ -178,7 +179,7 @@ void isem_del(int k) {
 
 int isem_new(int n) {
 	for (;;) {
-		int k = ctrl_shm_key + (rand()%0xfffff);
+		int k = ctrl_shm_key_base + (rand()%SHMKEY_MAX);
 
 		char name[128];
 		sprintf(name, isem_fmt, k);
