@@ -50,7 +50,15 @@ void _log(
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	fprintf(stderr, "[%.3f] [%s:%d:%s] %s\n", now(), file, line, func, buf);
+	char ds;
+	switch (level) {
+	case LOG_DEBUG: ds = 'D'; break;
+	case LOG_INFO:  ds = 'I'; break;
+	case LOG_WARN:  ds = 'W'; break;
+	case LOG_ERROR: ds = 'E'; break;
+	default: ds = 'U'; break;
+	}
+	fprintf(stderr, "[%8.3f] %c [%s:%d:%s] %s\n", now(), ds, file, line, func, buf);
 }
 
 void log_init() {
