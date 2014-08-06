@@ -12,7 +12,7 @@
 #include <sys/sem.h>  
 #include <sys/types.h>  
 
-#include "m.h"
+#include "utils.h"
 
 off_t malloc_page(ctrl_t **_c) {
 	ctrl_t *c = *_c;
@@ -40,7 +40,7 @@ iter_t slab_iter(ctrl_t **_c, off_t _sb) {
 }
 
 void slab_del(ctrl_t **_c, off_t _sb, int k) {
-	itemhdr_t *h;
+	item_t *h;
 	if (slab_get(_c, _sb, k, NULL, &h))
 		h->stat = FREED;
 }
@@ -59,7 +59,7 @@ void slab_free(ctrl_t **_c, off_t _sb) {
 
 slab_t slab_new(ctrl_t **_c, int size) {
 	slab_t sb = {};
-	sb.size = size + sizeof(itemhdr_t);
+	sb.size = size + sizeof(item_t);
 	sb.page = malloc_page(_c);
 	return sb;
 }
@@ -75,9 +75,9 @@ int iter_next(ctrl_t **_c, iter_t *it) {
 			it->page = next;
 		}
 		it->h = slab_item(_c, it->sb, it->page, it->i);
-		it->k = itemhdr(_c, it->h)->k;
-		it->v = it->h + sizeof(itemhdr_t);
-		switch (itemhdr(_c, it->h)->stat) {
+		it->k = item(_c, it->h)->k;
+		it->v = it->h + sizeof(item_t);
+		switch (item(_c, it->h)->stat) {
 		case FREED:
 			it->h_empty = it->h;
 			break;
@@ -124,12 +124,12 @@ int slab_get_or_new(ctrl_t **_c, off_t _sb, int k, off_t *_v, off_t *_h) {
 		it.h_empty = it.page + sizeof(page_t);
 	}
 
-	itemhdr_t *h = item(_c, it.h_empty);
+	item_t *h = item(_c, it.h_empty);
 	h->stat = USING;
 	h->k = k;
 
 	if (_v)
-		*_v = it.h_empty + sizeof(itemhdr_t);
+		*_v = it.h_empty + sizeof(item_t);
 	if (_h)
 		*_h = it.h_empty;
 
@@ -138,6 +138,10 @@ int slab_get_or_new(ctrl_t **_c, off_t _sb, int k, off_t *_v, off_t *_h) {
 
 off_t dict_new(ctrl_t **_c) {
 	return slab_new(_c, sizeof(dict_t));
+}
+
+int dict_get(ctrl_t **_c, off_t d, int k, off_t *_v) {
+	return slab_get(_c, dict(_c, d)->sb, k, _v, NULL);
 }
 
 int dict_get_or_new(ctrl_t **_c, off_t d, int k, off_t *_v) {
@@ -150,6 +154,14 @@ void dict_del(ctrl_t **_c, off_t d, int k) {
 
 iter_t dict_iter(ctrl_t **_c, off_t d) {
 	return slab_iter(_c, dict(_c, d)->sb);
+}
+
+int dict_len(ctrl_t **_c, off_t d) {
+	iter_t it = dict_iter(_c, d);
+	int n = 0;
+	while (iter_next(_c, &it))
+		n++;
+	return n;
 }
 
 #define assert(x) _assert(__file__, __line__, #x, x)
@@ -165,9 +177,9 @@ static int ctrl_size(int pages_n) {
 	return sizeof(ctrl_t)+pages_n*PAGESIZE;
 }
 
-static void ctrl_malloc(ctrl_t **_c, int pages_n) {
+void ctrl_malloc(ctrl_t **_c, int pages_n) {
 	int size = ctrl_size(pages_n);
-	int id = shmget(key_magic, size, 0600|IPC_CREAT);
+	int id = shmget(key_magic, size, 0777|IPC_CREAT);
 
 	ctrl_t *c = (ctrl_t *)shmat(id, NULL, 0);
 	memset(c, 0, size);
@@ -177,7 +189,11 @@ static void ctrl_malloc(ctrl_t **_c, int pages_n) {
 	*_c = c;
 }
 
-static void ctrl_realloc(ctrl_t **_c, int pages_n) {
+void ctrl_init(ctrl_t **_c) {
+	ctrl(_c)->chans = dict_new();
+}
+
+void ctrl_realloc(ctrl_t **_c, int pages_n) {
 	ctrl_t *c = *_c;
 
 	int size = ctrl_size(c->pages_n);
@@ -196,31 +212,96 @@ static void ctrl_realloc(ctrl_t **_c, int pages_n) {
 	c->pages_n = pages_n;
 }
 
-const char *lock_name = "event_v2:lock";
+static const char *lock_name = "event_v2:lock";
 
-static void ctrl_get(ctrl_t **_c) {
+void ctrl_get(ctrl_t **_c) {
 	sem_t *lock;
 	
 	lock = sem_open(lock_name, 0);
 	if (lock == SEM_FAILED)
-		lock = sem_open(lock_name, O_CREAT, 0600, 1);
+		lock = sem_open(lock_name, O_CREAT, 0777, 1);
 	sem_wait(lock);
 
-	int id = shmget(k, size, 0600);
+	int id = shmget(k, size, 0777);
 	if (id < 0) {
 		ctrl_malloc(_c, 64);
+		ctrl_init(_c);
 		return;
 	}
 	
 	*_c = (ctrl_t *)shmat(id, NULL, 0);
 }
 
-static void ctrl_put(ctrl_t **_c) {
+void ctrl_put(ctrl_t **_c) {
 	ctrl_t *c = *_c;
 
-	sem_t *lock = sem_open(lock_name, O_CREAT, 0600, 1);
+	sem_t *lock = sem_open(lock_name, O_CREAT, 0777, 1);
 	sem_post(lock);
 
 	shmdt(c);
+}
+
+int isem_new() {
+	for (;;) {
+		int k = 0x999888 + (rand()%0xfffff);
+		char name[128];
+
+		sprintf(name, "event_v2:sem:%d", k);
+		sem_t *s = sem_open(name, O_CREAT|O_EXCL, 0777, 1);
+		if (s != SEM_FAILED) {
+			sem_close(s);
+			return k;
+		}
+	}
+}
+
+void ishm_del(int id) {
+	semctl(id, 0, IPC_RMID, 0);
+}
+
+int ishm_new(int size) {
+	int id = shmget(k, size, 0777);
+}
+
+int ishm_size(int id) {
+	struct shmid_ds ds;
+	shmctl(id, IPC_STAT, &ds);
+	return ds.shm_segsz;
+}
+
+void *ishm_map(int id) {
+	return shmat(id, NULL, 0);
+}
+
+void ishm_unmap(void *addr) {
+	shmdt(addr);
+}
+
+int ishm_clone(int id) {
+	int size = ishm_size(id);
+	void *addr = ishm_map(id);
+	int id2 = ishm_new(size);
+	void *addr2 = ishm_map(id2);
+
+	memcpy(addr2, addr, size);
+	ishm_unmap(addr);
+	ishm_unmap(addr2);
+
+	return id2;
+}
+
+void ishm_del(int id) {
+	shmctl(id, 0, IPC_RMID, 0);
+}
+
+int ishm_new_from_buf(void *buf, int size) {
+	int id = ishm_new(size);
+	void *addr = ishm_map(id);
+	memcpy(addr, buf, size);
+	ishm_unmap(id);
+	return id;
+}
+
+void ishm_get_bufsize(int id, void **buf, int *size) {
 }
 
