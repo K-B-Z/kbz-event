@@ -20,10 +20,11 @@ server.c
         int len;
         
         // wait event from channel 123. timeout 1s.
-        kbz_event_get(123, &buf, &len, 1000);
-        
-        // buffer is available until next kbz_event_get call.
-        printf("got: %s\n", buf);
+        if (kbz_event_get(123, &buf, &len, 1000) == 0) {
+         // if not timeout
+         // buffer is available until next kbz_event_get call.
+         printf("got: %s\n", buf);
+        }
       }
       
     }
