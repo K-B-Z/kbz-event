@@ -77,5 +77,6 @@ client.c
 Build Requirements:
 
     gcc version > 4.6
+    Linux
     
 
