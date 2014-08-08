@@ -51,11 +51,11 @@ server.c
         int len;
         
         // get event from channel 123. wait forever(timeout=0).
-        kbz_event_get(123, &buf, &len, 0);
-        
-        char ans[128];
-        sprintf(ans, "time now is %d", time(NULL));
-        kbz_ack_event(123, buf, ans, strlen(ans)+1);
+        if (kbz_event_get(123, &buf, &len, 0) == 0) {
+         char ans[128];
+         sprintf(ans, "time now is %d", time(NULL));
+         kbz_ack_event(123, buf, ans, strlen(ans)+1);
+        }
       }
       
     }
@@ -69,9 +69,9 @@ client.c
       int ans_len;
       
       // post an empty event to channel 123 and wait for answer.
-      kbz_event_push(123, "", 0, &ans, &ans_len, 0);
-      
-      printf("server says: %s\n", ans);
+      if (kbz_event_push(123, "", 0, &ans, &ans_len, 0) == 0) {
+        printf("server says: %s\n", ans);
+      }
     }
 
 
